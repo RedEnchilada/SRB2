@@ -112,6 +112,9 @@ void G_LoadGame(UINT32 slot, INT16 mapoverride);
 void G_SaveGameData(void);
 
 void G_SaveGame(UINT32 slot);
+#ifdef HAVE_BLUA
+void G_CheckSavebuffer(size_t spaceneeded);
+#endif
 
 // Only called by startup code.
 void G_RecordDemo(const char *name);

@@ -14,6 +14,7 @@
 #ifdef HAVE_BLUA
 #include "doomstat.h"
 #include "p_mobj.h"
+#include "p_saveg.h"
 #include "g_game.h"
 #include "r_things.h"
 #include "b_bot.h"
@@ -53,6 +54,7 @@ const char *const hookNames[hook_MAX+1] = {
 	"LinedefExecute",
 	"PlayerMsg",
 	"HurtMsg",
+	"SaveData",
 	NULL
 };
 
@@ -384,9 +386,19 @@ void LUAh_MapChange(void)
 	lua_gc(gL, LUA_GCSTEP, 1);
 }
 
+boolean LUAh_SaveData(boolean loadfromfile);
+
 // Hook for map load
 void LUAh_MapLoad(void)
 {
+    if (luassgdataCount) // Do savedata handling here, MWAHAHA -Red
+    {
+        LUAh_SaveData(true);
+        Z_Free(luassgdata);
+        luassgdata = NULL;
+        luassgdataCount = luassgdataAlloc = 0;
+    }
+
 	if (!gL || !(hooksAvailable[hook_MapLoad/8] & (1<<(hook_MapLoad%8))))
 		return;
 
@@ -996,6 +1008,48 @@ boolean LUAh_DeathMsg(player_t *player, mobj_t *inflictor, mobj_t *source)
 		lua_pop(gL, 1); // pop return value
 	}
 	lua_pop(gL, 3); // pop arguments and mobjtype table
+
+	lua_gc(gL, LUA_GCSTEP, 1);
+	return handled;
+}
+
+// Lua hook for game saving and loading -Red
+// Only one hook? Sure, why not - pass a boolean to determine whether we're saving or loading?
+boolean LUAh_SaveData(boolean loadfromfile)
+{
+	boolean handled = false;
+
+	if (!gL || !(hooksAvailable[hook_SaveData/8] & (1<<(hook_SaveData%8))))
+		return false;
+
+    inSaveHook = true;
+
+	lua_getfield(gL, LUA_REGISTRYINDEX, "hook");
+	I_Assert(lua_istable(gL, -1));
+	lua_rawgeti(gL, -1, hook_SaveData);
+	lua_remove(gL, -2);
+	I_Assert(lua_istable(gL, -1));
+
+	LUA_PushUserdata(gL, luassgdata, META_SAVEDATA); // Data list
+	lua_pushboolean(gL, loadfromfile); // True=loading, false=saving
+
+	lua_pushnil(gL);
+
+	while (lua_next(gL, -4)) {
+		lua_pushvalue(gL, -4); // data list
+		lua_pushvalue(gL, -4); // loading bool
+		if (lua_pcall(gL, 2, 1, 0)) {
+			CONS_Alert(CONS_WARNING,"%s\n",lua_tostring(gL,-1));
+			lua_pop(gL, 1);
+			continue;
+		}
+		if (lua_toboolean(gL, -1))
+			handled = true;
+		lua_pop(gL, 1); // pop return value
+	}
+	lua_pop(gL, 2); // pop arguments and mobjtype table
+
+	inSaveHook = false;
 
 	lua_gc(gL, LUA_GCSTEP, 1);
 	return handled;

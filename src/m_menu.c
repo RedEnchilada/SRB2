@@ -4497,6 +4497,7 @@ static void M_ReadSavegameInfo(UINT32 slot)
 	INT32 fake; // Dummy variable
 	char temp[sizeof(timeattackfolder)];
 	char vcheck[VERSIONSIZE];
+	UINT8 consischeck;
 #ifdef SAVEGAMES_OTHERVERSIONS
 	boolean oldversion = false;
 #endif
@@ -4604,7 +4605,33 @@ static void M_ReadSavegameInfo(UINT32 slot)
 
 	// File end marker check
 	CHECKPOS
-	if (READUINT8(save_p) != 0x1d) BADSAVE;
+
+	consischeck = READUINT8(save_p);
+
+#ifdef HAVE_BLUA
+    if (consischeck == 0x3f)
+    { // We need to skim over the saved variables, while also making sure we don't shoot past the end of the file in the process.
+        UINT16 count, i, valuelen;
+
+        count = READUINT16(save_p);
+
+        for (i = 0; i < count; i++)
+        {
+            CHECKPOS
+            save_p += READUINT8(save_p); // skip past the key
+            valuelen = READUINT16(save_p);
+            if (valuelen)
+                save_p += valuelen;
+            else
+                save_p += 4;
+        }
+
+        CHECKPOS
+        if (READUINT8(save_p) != 0x1d) BADSAVE;
+    } else
+#endif
+
+	if (consischeck != 0x1d) BADSAVE;
 
 	// done
 	Z_Free(savebuffer);

@@ -30,9 +30,14 @@
 #include "r_sky.h"
 #include "p_polyobj.h"
 #include "lua_script.h"
+#include "lua_hook.h"
 
 savedata_t savedata;
 UINT8 *save_p;
+
+luasavedata_t *luassgdata;
+size_t luassgdataCount;
+size_t luassgdataAlloc;
 
 // Block UINT32s to attempt to ensure that the correct data is
 // being sent and received
@@ -3221,6 +3226,44 @@ void P_SaveGame(void)
 	P_ArchiveMisc();
 	P_ArchivePlayer();
 
+#ifdef HAVE_BLUA
+    luassgdataCount = 0;
+
+    luassgdataAlloc = 8;
+    luassgdata = Z_Realloc(luassgdata, luassgdataAlloc * sizeof(*luassgdata), PU_LUA, NULL);
+
+    LUAh_SaveData(false);
+    if (luassgdataCount) {
+        size_t i;
+
+        WRITEUINT8(save_p, 0x3f); // mark that thar be Lua stuff in this save file
+        WRITEUINT16(save_p, luassgdataCount);
+
+        for (i = 0; i < luassgdataCount; i++)
+        {
+            luasavedata_t *entry = &luassgdata[i];
+            size_t spaceneeded = strlen(entry->key)+(entry->valuelength ? entry->valuelength : 4)+3;
+
+            G_CheckSavebuffer(spaceneeded);
+
+            WRITEUINT8(save_p, strlen(entry->key));
+            M_Memcpy(save_p, entry->key, strlen(entry->key)); save_p += strlen(entry->key);
+
+            WRITEUINT16(save_p, entry->valuelength);
+
+            if (entry->valuelength)
+            {
+                M_Memcpy(save_p, entry->str, entry->valuelength);
+                save_p += entry->valuelength;
+            } else WRITEINT32(save_p, entry->value);
+        }
+
+        Z_Free(luassgdata);
+        luassgdata = NULL;
+        luassgdataCount = luassgdataAlloc = 0;
+    }
+#endif
+
 	WRITEUINT8(save_p, 0x1d); // consistency marker
 }
 
@@ -3264,6 +3307,8 @@ void P_SaveNetGame(void)
 
 boolean P_LoadGame(INT16 mapoverride)
 {
+    UINT8 consismarker;
+
 	if (gamestate == GS_INTERMISSION)
 		Y_EndIntermission();
 	G_SetGamestate(GS_NULL); // should be changed in P_UnArchiveMisc
@@ -3271,8 +3316,52 @@ boolean P_LoadGame(INT16 mapoverride)
 	P_UnArchiveSPGame(mapoverride);
 	P_UnArchivePlayer();
 
+	consismarker = READUINT8(save_p);
+
+#ifdef HAVE_BLUA
+#define PING CONS_Printf("ping! %d\n", __LINE__);
+	if (consismarker == 0x3f) {
+        luassgdataAlloc = READUINT16(save_p); PING
+        luassgdata = Z_Realloc(luassgdata, luassgdataAlloc * sizeof(*luassgdata), PU_LUA, NULL); PING
+
+        for(luassgdataCount = 0; luassgdataCount < luassgdataAlloc; luassgdataCount++)
+        {
+            luasavedata_t *entry = &luassgdata[luassgdataCount];
+            UINT16 keylen; PING
+
+            memset(entry->key, 0x00, sizeof(entry->key)); PING
+
+            keylen = READUINT8(save_p); PING
+            M_Memcpy(entry->key, save_p, keylen);
+            save_p += keylen; PING
+
+            entry->valuelength = READUINT16(save_p); PING
+
+            if (entry->valuelength)
+            {
+                entry->str = malloc(entry->valuelength+1);
+                M_Memcpy(entry->str, save_p, entry->valuelength);
+                entry->str[entry->valuelength] = '\0';
+                save_p += entry->valuelength;
+            } else entry->value = READINT32(save_p); PING
+        } PING
+
+        consismarker = READUINT8(save_p); PING
+
+        if (consismarker != 0x1d)
+        { // Something got messed up somewhere; wipe luassgdata before returning false
+            Z_Free(luassgdata);
+            luassgdata = NULL;
+            luassgdataCount = luassgdataAlloc = 0;
+            return false;
+        } PING
+
+        // Don't run the hook to load savedata until the map loads, so objects will be in place
+	} else
+#endif
+
 	// Savegame end marker
-	if (READUINT8(save_p) != 0x1d)
+	if (consismarker != 0x1d)
 		return false;
 
 	// Only do this after confirming savegame is ok

@@ -42,6 +42,7 @@ enum hook {
 	hook_LinedefExecute,
 	hook_PlayerMsg,
 	hook_DeathMsg,
+	hook_SaveData,
 
 	hook_MAX // last hook
 };
@@ -74,5 +75,6 @@ boolean LUAh_BotAI(mobj_t *sonic, mobj_t *tails, ticcmd_t *cmd); // Hook for B_B
 boolean LUAh_LinedefExecute(line_t *line, mobj_t *mo, sector_t *sector); // Hook for linedef executors
 boolean LUAh_PlayerMsg(int source, int target, int flags, char *msg); // Hook for chat messages
 boolean LUAh_DeathMsg(player_t *player, mobj_t *inflictor, mobj_t *source); // Hook for hurt messages
+boolean LUAh_SaveData(boolean loadfromfile); // Hook for saving/loading data to/from SSG files
 
 #endif

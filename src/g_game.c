@@ -275,6 +275,7 @@ boolean precache = true; // if true, load all graphics at start
 INT16 prevmap, nextmap;
 
 static UINT8 *savebuffer;
+static size_t savebuffersize;
 
 // Analog Control
 static void UserAnalog_OnChange(void);
@@ -3461,6 +3462,8 @@ void G_SaveGame(UINT32 savegameslot)
 			return;
 		}
 
+        savebuffersize = SAVEGAMESIZE;
+
 		memset(name, 0, sizeof (name));
 		sprintf(name, "version %d", VERSION);
 		WRITEMEM(save_p, name, VERSIONSIZE);
@@ -3480,6 +3483,37 @@ void G_SaveGame(UINT32 savegameslot)
 	else if (!saved)
 		CONS_Alert(CONS_ERROR, M_GetText("Error while writing to %s for save slot %u, base: %s\n"), backup, savegameslot, savegamename);
 }
+
+#ifdef HAVE_BLUA
+void G_CheckSavebuffer(size_t spaceneeded)
+{
+    size_t totalsize = (save_p-savebuffer)+spaceneeded;
+
+    CONS_Printf("Checking for %d free bytes in savefile\n", spaceneeded);
+    CONS_Printf("Current save file size = %d\n", save_p-savebuffer);
+    CONS_Printf("Total space needed = %d\n", totalsize);
+    CONS_Printf("Savebuffersize = %d\n", savebuffersize);
+    if (totalsize >= savebuffersize)
+    {
+        size_t savepos = save_p-savebuffer;
+        UINT8* tmp;
+
+        while (totalsize >= savebuffersize)
+            savebuffersize *= 2;
+
+        CONS_Printf("Attempting to realloc to %d bytes\n", savebuffersize);
+        tmp = realloc(savebuffer, savebuffersize);
+        if (!tmp)
+            I_Error("Out of memory trying to reallocate the save buffer! ;~;");
+
+        savebuffer = tmp;
+
+        save_p = savebuffer+savepos;
+        CONS_Printf("New save file size = %d\n", save_p-savebuffer);
+        CONS_Printf("New savebuffersize = %d\n", savebuffersize);
+    }
+}
+#endif
 
 //
 // G_DeferedInitNew

@@ -43,4 +43,19 @@ typedef struct
 extern savedata_t savedata;
 extern UINT8 *save_p;
 
+typedef struct luasavedata_s
+{
+    char key[64]; // Max length of keys in savedata (would a hashing mechanism work better? ?? ???)
+
+    UINT16 valuelength; // 0 = int stored, >0 = string being stored, value is length of string
+
+    // Possible values
+    INT32 value;
+    char *str;
+} luasavedata_t;
+
+extern luasavedata_t *luassgdata; // Array of data values
+extern size_t luassgdataCount; // Amount of savedata vars held
+extern size_t luassgdataAlloc; // Amount of savedata space allocated
+
 #endif

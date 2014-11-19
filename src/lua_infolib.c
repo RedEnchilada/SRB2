@@ -17,6 +17,7 @@
 #include "dehacked.h"
 #include "p_mobj.h"
 #include "p_local.h"
+#include "p_saveg.h"
 #include "z_zone.h"
 
 #include "lua_script.h"
@@ -51,6 +52,8 @@ const char *const sfxinfo_wopt[] = {
 	"priority",
 	"flags",
 	NULL};
+
+boolean inSaveHook = false; // To prevent setting/getting savedata outside of the relevant hook
 
 //
 // Sprite Names
@@ -846,6 +849,118 @@ static int sfxinfo_num(lua_State *L)
 	return 1;
 }
 
+static int savedata_get(lua_State *L)
+{
+    luasavedata_t *sdata = luassgdata; // SURPRISE MOTHERFUCKERS the pointer passed to lua is just a placeholder!!
+
+	const char *field = luaL_checkstring(L, 2);
+
+	size_t i;
+
+    if (!inSaveHook)
+        return luaL_error(L, "cannot read savedata outside the SaveData hook.");
+
+	for(i = 0; i < luassgdataCount; i++) // Look through array for a matching key
+    {
+        if (strlen(field) == strlen(sdata[i].key) && fastncmp(field, sdata[i].key, strlen(field))) // Found it!
+        {
+            if (sdata[i].valuelength) // String
+            {
+                lua_pushlstring(L, sdata[i].str, sdata[i].valuelength);
+            }
+            else // Int
+            {
+                lua_pushinteger(L, sdata[i].value);
+            }
+            return 1;
+        }
+    }
+    return 0; // Found nothing...
+}
+
+
+static int savedata_set(lua_State *L)
+{
+    luasavedata_t *sdata = luassgdata; // SURPRISE MOTHERFUCKERS the pointer passed to lua is just a placeholder!!
+
+	const char *field = luaL_checkstring(L, 2);
+
+	size_t i;
+
+    if (!inSaveHook)
+        return luaL_error(L, "cannot set savedata outside the SaveData hook.");
+
+	for(i = 0; i < luassgdataCount; i++) // Look through array for a matching key
+    {
+        if (strlen(field) == strlen(sdata[i].key) && fastncmp(field, sdata[i].key, strlen(field))) // Found it!
+        {
+            if (lua_isnil(L, 3)) // Remove key
+            {
+                while (i < luassgdataCount-1)
+                    sdata[i] = sdata[i+1]; // ?????
+
+                luassgdataCount--;
+            }
+            else if (lua_isnumber(L, 3)) // Set key to number
+            {
+                sdata[i].valuelength = 0;
+                sdata[i].value = luaL_checkinteger(L, 3);
+            }
+            else if (lua_isboolean(L, 3)) // Set key to boolean (actually to number but lel)
+            {
+                sdata[i].valuelength = 0;
+                sdata[i].value = lua_toboolean(L, 3) ? 1 : 0;
+            }
+            else if (lua_isstring(L, 3)) // Set key to string
+            {
+                size_t len = strlen(luaL_checkstring(L, 3));
+                sdata[i].str = malloc(len);
+                M_Memcpy(sdata[i].str, luaL_checkstring(L, 3), len);
+                sdata[i].valuelength = len;
+            }
+            else // Invalid key!
+                return luaL_error(L, "cannot set savedata value to anything besides number, boolean or string.");
+
+            return 0;
+        }
+    }
+    if (!lua_isnil(L, 3)) // Create new key
+    {
+        if (luassgdataCount >= luassgdataAlloc)
+        {
+            // Reassign
+            luassgdataAlloc = luassgdataAlloc ? luassgdataAlloc*2 : 8;
+            luassgdata = Z_Realloc(luassgdata, luassgdataAlloc * sizeof(*luassgdata), PU_LUA, NULL);
+            sdata = luassgdata;
+        }
+
+        strcpy(sdata[i].key, field);
+
+        if (lua_isnumber(L, 3)) // Set key to number
+        {
+            sdata[i].valuelength = 0;
+            sdata[i].value = luaL_checkinteger(L, 3);
+        }
+        else if (lua_isboolean(L, 3)) // Set key to boolean (actually to number but lel)
+        {
+            sdata[i].valuelength = 0;
+            sdata[i].value = lua_toboolean(L, 3) ? 1 : 0;
+        }
+        else if (lua_isstring(L, 3)) // Set key to string
+        {
+            size_t len = strlen(luaL_checkstring(L, 3));
+            sdata[i].str = malloc(len);
+            M_Memcpy(sdata[i].str, luaL_checkstring(L, 3), len);
+            sdata[i].valuelength = len;
+        }
+        else // Invalid key!
+            return luaL_error(L, "cannot set savedata value to anything besides number, boolean or string.");
+
+        luassgdataCount++;
+    }
+    return 0;
+}
+
 //////////////////////////////
 //
 // Now push all these functions into the Lua state!
@@ -892,6 +1007,14 @@ int LUA_InfoLib(lua_State *L)
 
 		lua_pushcfunction(L, sfxinfo_num);
 		lua_setfield(L, -2, "__len");
+	lua_pop(L, 1);
+
+	luaL_newmetatable(L, META_SAVEDATA);
+		lua_pushcfunction(L, savedata_get);
+		lua_setfield(L, -2, "__index");
+
+		lua_pushcfunction(L, savedata_set);
+		lua_setfield(L, -2, "__newindex");
 	lua_pop(L, 1);
 
 	lua_newuserdata(L, 0);

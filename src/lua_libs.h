@@ -49,6 +49,10 @@ extern lua_State *gL;
 #define META_COLORMAP "COLORMAP"
 #define META_CAMERA "CAMERA_T*"
 
+#define META_SAVEDATA "LUASAVEDATA_T*"
+
+extern boolean inSaveHook;
+
 boolean luaL_checkboolean(lua_State *L, int narg);
 
 int LUA_EnumLib(lua_State *L);
